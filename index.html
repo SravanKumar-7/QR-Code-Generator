@@ -410,6 +410,74 @@
       #logoInput {
         display: none;
       }
+
+      /* Logo size slider */
+      .logo-size-group {
+        min-width: 170px;
+      }
+      .logo-size-slider-wrap {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .size-icon {
+        font-size: 0.65rem;
+        font-family: "JetBrains Mono", monospace;
+        color: var(--dim);
+        user-select: none;
+        line-height: 1;
+      }
+      .size-icon-sm {
+        font-size: 0.6rem;
+      }
+      .size-icon-lg {
+        font-size: 0.78rem;
+      }
+      .logo-slider-track {
+        position: relative;
+        width: 100px;
+        height: 4px;
+        background: var(--s3);
+        border-radius: 99px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .logo-slider-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        background: var(--white);
+        border-radius: 99px;
+        pointer-events: none;
+        transition: width 0s;
+      }
+      .logo-slider-thumb {
+        position: absolute;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--white);
+        border: 2px solid var(--bg);
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+        transform: translate(-50%, -50%);
+        cursor: grab;
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .logo-slider-thumb:active,
+      .logo-slider-thumb.dragging {
+        cursor: grabbing;
+        transform: translate(-50%, -50%) scale(1.2);
+        box-shadow: 0 2px 12px rgba(255, 255, 255, 0.25);
+      }
+      .logo-slider-track:hover .logo-slider-thumb {
+        box-shadow:
+          0 0 0 5px rgba(255, 255, 255, 0.08),
+          0 1px 6px rgba(0, 0, 0, 0.5);
+      }
       /* QR Card */
       .qr-stage {
         margin-top: 40px;
@@ -1127,16 +1195,6 @@
       </div>
       <div class="error-msg" id="errorMsg"></div>
       <div class="options-row">
-        <div class="opt-group">
-          <span class="opt-label">Size</span>
-          <div class="opt-pills" id="sizePills">
-            <button class="pill" data-size="256" title="256px">S</button>
-            <button class="pill active" data-size="512" title="512px">M</button>
-            <button class="pill" data-size="1024" title="1024px — print ready">
-              L
-            </button>
-          </div>
-        </div>
         <div class="opt-group" id="logoGroup">
           <span class="opt-label">Logo</span>
           <button class="logo-upload-btn" id="logoBtn">
@@ -1157,8 +1215,18 @@
               >×</span
             >
           </button>
-
           <input type="file" id="logoInput" accept="image/*" />
+        </div>
+        <div class="opt-group logo-size-group" id="logoSizeGroup">
+          <span class="opt-label">Logo Size</span>
+          <div class="logo-size-slider-wrap">
+            <span class="size-icon size-icon-sm">S</span>
+            <div class="logo-slider-track" id="logoSliderTrack">
+              <div class="logo-slider-fill" id="logoSliderFill"></div>
+              <div class="logo-slider-thumb" id="logoSliderThumb"></div>
+            </div>
+            <span class="size-icon size-icon-lg">L</span>
+          </div>
         </div>
       </div>
       <div class="qr-stage">
@@ -2508,6 +2576,7 @@
         currentSVG = null,
         currentQRMatrix = null,
         logoDataURL = null,
+        logoImg = null,
         logoShape = "circle",
         selectedFmt = "png",
         modalFmt = "png",
@@ -2516,6 +2585,7 @@
         debounceTimer = null,
         selectedECL = "H",
         selectedSize = 512,
+        logoSizeRatio = 0.22,
         isDarkTheme = true,
         qrDark = "#0a0a0a",
         qrLight = "#ffffff";
@@ -2691,16 +2761,91 @@
       };
 
       // ═══ SIZE ═══
-      document.getElementById("sizePills").addEventListener("click", (e) => {
-        const p = e.target.closest(".pill");
-        if (!p) return;
-        document
-          .querySelectorAll("#sizePills .pill")
-          .forEach((x) => x.classList.remove("active"));
-        p.classList.add("active");
-        selectedSize = parseInt(p.dataset.size);
-        if (currentQRMatrix) renderToCanvas(currentQRMatrix);
-      });
+      // ═══ LOGO SIZE SLIDER ═══
+      (function () {
+        const track = document.getElementById("logoSliderTrack");
+        const thumb = document.getElementById("logoSliderThumb");
+        const fill = document.getElementById("logoSliderFill");
+        // range: 0.10 (small) → 0.35 (large), default 0.22 = medium (center)
+        const MIN = 0.1,
+          MAX = 0.35,
+          DEFAULT = 0.22;
+        function ratioToPercent(r) {
+          return ((r - MIN) / (MAX - MIN)) * 100;
+        }
+        function setSlider(ratio) {
+          logoSizeRatio = Math.min(MAX, Math.max(MIN, ratio));
+          const pct = ratioToPercent(logoSizeRatio);
+          thumb.style.left = pct + "%";
+          fill.style.width = pct + "%";
+        }
+        setSlider(DEFAULT); // start at medium
+        let dragging = false;
+        function getTrackRatio(clientX) {
+          const rect = track.getBoundingClientRect();
+          return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        }
+        function startDrag(clientX) {
+          dragging = true;
+          thumb.classList.add("dragging");
+          const t = getTrackRatio(clientX);
+          setSlider(MIN + t * (MAX - MIN));
+          if (currentQRMatrix) renderToCanvas(currentQRMatrix);
+        }
+        track.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          startDrag(e.clientX);
+        });
+        thumb.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          startDrag(e.clientX);
+        });
+        document.addEventListener("mousemove", (e) => {
+          if (!dragging) return;
+          const t = getTrackRatio(e.clientX);
+          setSlider(MIN + t * (MAX - MIN));
+          if (currentQRMatrix) renderToCanvas(currentQRMatrix);
+        });
+        document.addEventListener("mouseup", () => {
+          if (dragging) {
+            dragging = false;
+            thumb.classList.remove("dragging");
+          }
+        });
+        // Touch support
+        track.addEventListener(
+          "touchstart",
+          (e) => {
+            e.preventDefault();
+            startDrag(e.touches[0].clientX);
+          },
+          { passive: false },
+        );
+        thumb.addEventListener(
+          "touchstart",
+          (e) => {
+            e.preventDefault();
+            startDrag(e.touches[0].clientX);
+          },
+          { passive: false },
+        );
+        document.addEventListener(
+          "touchmove",
+          (e) => {
+            if (!dragging) return;
+            const t = getTrackRatio(e.touches[0].clientX);
+            setSlider(MIN + t * (MAX - MIN));
+            if (currentQRMatrix) renderToCanvas(currentQRMatrix);
+          },
+          { passive: true },
+        );
+        document.addEventListener("touchend", () => {
+          if (dragging) {
+            dragging = false;
+            thumb.classList.remove("dragging");
+          }
+        });
+      })();
 
       // ═══ FORMAT — PNG only ═══
       selectedFmt = "png";
@@ -2720,17 +2865,23 @@
         const reader = new FileReader();
         reader.onload = (ev) => {
           logoDataURL = ev.target.result;
-          const name =
-            file.name.length > 15 ? file.name.slice(0, 13) + "…" : file.name;
-          logoBtnLabel.textContent = name;
-          logoClearX.style.display = "inline";
-          logoBtn.classList.add("has-logo");
-          if (currentQRMatrix) renderToCanvas(currentQRMatrix);
+          const img = new Image();
+          img.onload = () => {
+            logoImg = img;
+            const name =
+              file.name.length > 15 ? file.name.slice(0, 13) + "…" : file.name;
+            logoBtnLabel.textContent = name;
+            logoClearX.style.display = "inline";
+            logoBtn.classList.add("has-logo");
+            if (currentQRMatrix) renderToCanvas(currentQRMatrix);
+          };
+          img.src = logoDataURL;
         };
         reader.readAsDataURL(file);
       });
       function clearLogo() {
         logoDataURL = null;
+        logoImg = null;
         logoBtnLabel.textContent = "Upload";
         logoClearX.style.display = "none";
         logoBtn.classList.remove("has-logo");
@@ -2855,8 +3006,9 @@
           [0, count - 7],
         ];
 
-        // Center blank zone: skip this many modules from center outward
-        const skipRadius = logoDataURL ? count * 0.095 : 0; // radius in module-units from center
+        // Center blank zone: skip radius scales with logoSizeRatio
+        // logoSizeRatio is 0.10–0.35, map to module-radius 0.045–0.16
+        const skipRadius = logoDataURL ? count * (logoSizeRatio * 0.46) : 0;
         const centerCol = (count - 1) / 2;
         const centerRow = (count - 1) / 2;
 
@@ -2934,59 +3086,22 @@
           currentDataURL = qrCanvas.toDataURL("image/png");
         }, "image/png");
 
-        if (logoDataURL) {
-          const logoImg = new Image();
-          logoImg.onload = () => {
-            // Logo size matches the blank zone exactly
-            const zonePixels = skipRadius * tile * 2; // diameter of blank area in canvas pixels
-            const ls = zonePixels * 0.92; // logo slightly smaller than the blank zone
-            const cx = size / 2,
-              cy = size / 2;
-            // white backing
-            ctx.fillStyle = qrLight;
-            if (logoShape === "circle") {
-              // circular backing + circular clip
-              ctx.beginPath();
-              ctx.arc(cx, cy, ls * 0.56, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.save();
-              ctx.beginPath();
-              ctx.arc(cx, cy, ls * 0.5, 0, Math.PI * 2);
-              ctx.clip();
-              ctx.drawImage(logoImg, cx - ls * 0.5, cy - ls * 0.5, ls, ls);
-              ctx.restore();
-            } else {
-              // square backing + square clip with rounded corners
-              const bR = ls * 0.15;
-              roundRect(
-                ctx,
-                cx - ls * 0.56,
-                cy - ls * 0.56,
-                ls * 1.12,
-                ls * 1.12,
-                bR * 1.2,
-              );
-              ctx.save();
-              const lx = cx - ls * 0.5,
-                ly = cy - ls * 0.5;
-              ctx.beginPath();
-              ctx.moveTo(lx + bR, ly);
-              ctx.lineTo(lx + ls - bR, ly);
-              ctx.quadraticCurveTo(lx + ls, ly, lx + ls, ly + bR);
-              ctx.lineTo(lx + ls, ly + ls - bR);
-              ctx.quadraticCurveTo(lx + ls, ly + ls, lx + ls - bR, ly + ls);
-              ctx.lineTo(lx + bR, ly + ls);
-              ctx.quadraticCurveTo(lx, ly + ls, lx, ly + ls - bR);
-              ctx.lineTo(lx, ly + bR);
-              ctx.quadraticCurveTo(lx, ly, lx + bR, ly);
-              ctx.closePath();
-              ctx.clip();
-              ctx.drawImage(logoImg, lx, ly, ls, ls);
-              ctx.restore();
-            }
-            currentDataURL = qrCanvas.toDataURL("image/png");
-          };
-          logoImg.src = logoDataURL;
+        if (logoDataURL && logoImg) {
+          const zonePixels = skipRadius * tile * 2;
+          const ls = zonePixels * 0.92;
+          const cx = size / 2,
+            cy = size / 2;
+          ctx.fillStyle = qrLight;
+          ctx.beginPath();
+          ctx.arc(cx, cy, ls * 0.56, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, ls * 0.5, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(logoImg, cx - ls * 0.5, cy - ls * 0.5, ls, ls);
+          ctx.restore();
+          currentDataURL = qrCanvas.toDataURL("image/png");
         }
       }
       function roundRect(ctx, x, y, w, h, radius) {
